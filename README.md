@@ -19,7 +19,7 @@ Web 单独创建仅具四张 `scheduler_*` 表 `SELECT` 权限的 PostgreSQL 角
 后端不会执行迁移、建表、更新或删除操作。
 
 仓库内的 GitHub Actions 会在 Pull Request 中验证 Docker 构建，并在推送到
-`main`、`master` 或 `v*` 标签时将 `linux/amd64`、`linux/arm64` 镜像发布到
+`main`、`master` 或 `v*` 标签时将 `linux/amd64` 镜像发布到
 `ghcr.io/<owner>/<repository>`。默认分支同时发布 `latest` 标签。
 
 ## 环境变量
@@ -55,8 +55,9 @@ Web 单独创建仅具四张 `scheduler_*` 表 `SELECT` 权限的 PostgreSQL 角
 
 ```bash
 cd frontend
-npm ci
-npm run dev
+corepack enable
+pnpm install --frozen-lockfile
+pnpm dev
 ```
 
 ```bash
