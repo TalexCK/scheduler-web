@@ -1,16 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useState } from "react"
 import {
   Activity,
   CalendarDays,
   Clock3,
   Crown,
-  Database,
   Gamepad2,
   MapPin,
-  Medal,
+  Moon,
   RefreshCw,
   ServerIcon,
-  ShieldCheck,
+  Sun,
   Users,
 } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -95,6 +94,20 @@ type LeaderboardCatalogRecord = LeaderboardCatalogEntry & {
   period_key?: string | null
 }
 
+type MinecraftStatus = {
+  online: boolean
+  host: string
+  port: number
+  latency_ms?: number | null
+  online_players?: number | null
+  max_players?: number | null
+  version?: string | null
+  motd?: string | null
+  checked_at: string
+}
+
+type Theme = "light" | "dark"
+
 const formatter = new Intl.NumberFormat("zh-CN")
 const now = new Date()
 const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
@@ -104,16 +117,21 @@ const bingoMetricLabels: Record<string, string> = {
   extreme_3: "极难 · 三连线",
   extreme_12: "极难 · 全棋盘",
 }
-const activeStates = new Set(["ready", "running", "online", "starting", "stopping"])
+const activeStates = new Set(["ready", "running", "starting", "stopping"])
 const stateLabels: Record<string, string> = {
   ready: "运行中",
   running: "运行中",
-  online: "运行中",
   starting: "启动中",
   stopping: "停止中",
   exited: "已停止",
   failed: "异常",
   offline: "未运行",
+}
+
+function initialTheme(): Theme {
+  const saved = window.localStorage.getItem("scheduler-theme")
+  if (saved === "light" || saved === "dark") return saved
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
 }
 
 function initials(name: string) {
@@ -153,32 +171,53 @@ export default function App() {
   const [allTimeLeaderboard, setAllTimeLeaderboard] = useState<LeaderboardEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [minecraftStatus, setMinecraftStatus] = useState<MinecraftStatus | null>(null)
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
+  const [theme, setTheme] = useState<Theme>(initialTheme)
+
+  useLayoutEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark")
+    window.localStorage.setItem("scheduler-theme", theme)
+  }, [theme])
 
   const load = useCallback(async () => {
     setLoading(true)
-    try {
-      const [serverData, playerData, catalogData] = await Promise.all([
+    const [dataResult, statusResult] = await Promise.allSettled([
+      Promise.all([
         fetchJson<ServersResponse>("/api/servers"),
         fetchJson<ListResponse<PlayerPresence>>("/api/players"),
         fetchJson<ListResponse<LeaderboardCatalogRecord>>("/api/leaderboards/catalog"),
-      ])
+      ]),
+      fetchJson<MinecraftStatus>("/api/minecraft-status"),
+    ])
+
+    if (statusResult.status === "fulfilled") setMinecraftStatus(statusResult.value)
+    else setMinecraftStatus(null)
+
+    try {
+      if (dataResult.status === "rejected") throw dataResult.reason
+      const [serverData, playerData, catalogData] = dataResult.value
       const latestInstances = new Map<string, ServerInstance>()
       for (const instance of serverData.instances) {
-        if (!latestInstances.has(instance.server_id)) latestInstances.set(instance.server_id, instance)
+        if (!activeStates.has(instance.state)) continue
+        const current = latestInstances.get(instance.server_id)
+        const currentTime = new Date(current?.last_heartbeat ?? 0).getTime()
+        const candidateTime = new Date(instance.last_heartbeat ?? 0).getTime()
+        if (!current || candidateTime > currentTime) latestInstances.set(instance.server_id, instance)
       }
-      setServers(serverData.definitions.map((definition) => {
+      setServers(serverData.definitions.flatMap((definition) => {
         const instance = latestInstances.get(definition.server_id)
-        return {
+        if (!instance) return []
+        return [{
           id: definition.server_id,
           name: definition.display_name,
-          status: instance?.state ?? "offline",
+          status: instance.state,
           game_type: definition.game_id,
-          online_players: instance?.player_count ?? 0,
+          online_players: instance.player_count,
           max_players: definition.max_players,
-          started_at: instance?.started_at,
-          last_heartbeat: instance?.last_heartbeat,
-        }
+          started_at: instance.started_at,
+          last_heartbeat: instance.last_heartbeat,
+        }]
       }))
       const names = new Map(serverData.definitions.map((item) => [item.server_id, item.display_name]))
       setPlayers(playerData.data.map((player) => ({
@@ -195,11 +234,11 @@ export default function App() {
       if (bingoCatalog.length > 0) {
         setSelectedMetric((current) => bingoCatalog.some((item) => item.metric === current) ? current : bingoCatalog[0].metric)
       }
-      setUpdatedAt(new Date())
       setError(null)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "无法读取网络状态")
     } finally {
+      setUpdatedAt(new Date())
       setLoading(false)
     }
   }, [])
@@ -227,29 +266,29 @@ export default function App() {
     void refreshLeaderboards()
   }, [selectedMetric, updatedAt])
 
-  const onlineServers = useMemo(() => servers.filter((server) => activeStates.has(server.status)), [servers])
-  const capacity = useMemo(() => servers.reduce((sum, server) => sum + (server.max_players ?? 0), 0), [servers])
-  const utilization = capacity ? Math.round((players.length / capacity) * 100) : 0
   const leaderboardCount = monthlyLeaderboard.length + allTimeLeaderboard.length
 
   return (
     <main className="min-h-screen">
       <header className="border-b bg-background/88 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-[1480px] items-center justify-between px-5 py-4 md:px-8">
+        <div className="mx-auto flex max-w-[1480px] items-center justify-between gap-3 px-4 py-3 sm:px-5 sm:py-4 md:px-8">
           <div className="flex items-center gap-3">
-            <Avatar className="size-10 rounded-xl">
-              <AvatarFallback className="rounded-xl bg-primary text-primary-foreground"><Activity className="size-5" /></AvatarFallback>
+            <Avatar className="size-9 rounded-lg sm:size-10 sm:rounded-xl">
+              <AvatarFallback className="rounded-lg bg-primary text-primary-foreground sm:rounded-xl"><Activity className="size-4 sm:size-5" /></AvatarFallback>
             </Avatar>
             <div>
-              <p className="brand-type text-lg font-semibold tracking-tight">Scheduler</p>
-              <p className="text-xs text-muted-foreground">网络状态与排行榜</p>
+              <p className="brand-type text-base font-semibold tracking-tight sm:text-lg">Scheduler</p>
+              <p className="hidden text-xs text-muted-foreground sm:block">网络状态与排行榜</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge variant={error ? "warning" : "success"}>
+          <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
+            <Badge variant="outline" className="max-w-32 px-2 sm:max-w-none sm:px-2.5">
               <span className="status-dot" />
-              {error ? "数据连接异常" : "数据同步正常"}
+              <span className="truncate">{minecraftStatus === null ? "状态检测中" : minecraftStatus.online ? "游戏网络在线" : "游戏网络离线"}</span>
             </Badge>
+            <Button variant="outline" size="icon" aria-label={theme === "dark" ? "切换到浅色模式" : "切换到深色模式"} onClick={() => setTheme((current) => current === "dark" ? "light" : "dark")}>
+              {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+            </Button>
             <Button variant="outline" size="icon" aria-label="刷新数据" onClick={() => void load()} disabled={loading}>
               <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
             </Button>
@@ -257,13 +296,8 @@ export default function App() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-[1480px] px-5 py-8 md:px-8 md:py-12">
-        <section className="mb-8 flex flex-col justify-between gap-5 md:flex-row md:items-end">
-          <div className="max-w-2xl">
-            <Badge variant="outline" className="mb-4 border-primary/20 bg-primary/5 text-primary"><ShieldCheck className="size-3" /> PUBLIC STATUS</Badge>
-            <h1 className="brand-type text-3xl font-semibold tracking-[-0.035em] text-balance md:text-5xl">整个游戏网络，一眼看清。</h1>
-            <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground md:text-base">服务器运行状态、玩家所在位置与排行榜，由 Scheduler 通过公共数据库持续发布。</p>
-          </div>
+      <div className="mx-auto max-w-[1480px] px-4 py-6 sm:px-5 md:px-8 md:py-8">
+        <section className="mb-5 flex justify-end">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Clock3 className="size-3.5" />
             {updatedAt ? `更新于 ${updatedAt.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : "正在获取数据"}
@@ -271,31 +305,25 @@ export default function App() {
         </section>
 
         {error && (
-          <Alert className="mb-6 border-amber-200 bg-amber-50 text-amber-950">
-            <Database className="size-4" />
+          <Alert className="mb-6 bg-muted/50">
+            <Activity className="size-4" />
             <AlertTitle>暂时无法连接状态服务</AlertTitle>
-            <AlertDescription>页面会每 15 秒自动重试。错误信息：{error}</AlertDescription>
+            <AlertDescription>页面会每 15 秒自动重试。</AlertDescription>
           </Alert>
         )}
 
-        <section className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <section className="mb-7 grid gap-3 sm:grid-cols-3 sm:gap-4">
           <Card className="metric-card">
             <CardHeader className="flex-row items-center justify-between">
               <CardDescription>运行中的服务器</CardDescription><ServerIcon className="size-4 text-muted-foreground" />
             </CardHeader>
-            <CardContent><CardTitle className="metric-value">{formatter.format(onlineServers.length)}<span>/ {servers.length}</span></CardTitle></CardContent>
+            <CardContent><CardTitle className="metric-value">{formatter.format(servers.length)}</CardTitle></CardContent>
           </Card>
           <Card className="metric-card">
             <CardHeader className="flex-row items-center justify-between">
               <CardDescription>当前在线玩家</CardDescription><Users className="size-4 text-muted-foreground" />
             </CardHeader>
             <CardContent><CardTitle className="metric-value">{formatter.format(players.length)}</CardTitle></CardContent>
-          </Card>
-          <Card className="metric-card">
-            <CardHeader className="flex-row items-center justify-between">
-              <CardDescription>网络容量使用</CardDescription><Activity className="size-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent className="space-y-3"><CardTitle className="metric-value">{utilization}<span>%</span></CardTitle><Progress value={utilization} /></CardContent>
           </Card>
           <Card className="metric-card accent-card">
             <CardHeader className="flex-row items-center justify-between">
@@ -306,7 +334,7 @@ export default function App() {
         </section>
 
         <Tabs defaultValue="overview">
-          <TabsList>
+          <TabsList className="grid h-auto w-full grid-cols-3 sm:flex sm:w-fit">
             <TabsTrigger value="overview"><Gamepad2 className="size-3.5" />服务器</TabsTrigger>
             <TabsTrigger value="players"><Users className="size-3.5" />玩家</TabsTrigger>
             <TabsTrigger value="leaderboard"><Crown className="size-3.5" />排行榜</TabsTrigger>
@@ -315,7 +343,6 @@ export default function App() {
           <TabsContent value="overview">
             <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
               {servers.map((server) => {
-                const isOnline = activeStates.has(server.status)
                 const load = server.max_players ? Math.round((server.online_players / server.max_players) * 100) : 0
                 return (
                   <Card key={server.id} className="server-card">
@@ -324,7 +351,7 @@ export default function App() {
                         <CardTitle className="text-base">{server.name}</CardTitle>
                         <CardDescription className="font-mono text-xs">{server.id}</CardDescription>
                       </div>
-                      <Badge variant={isOnline ? "success" : "secondary"}>{stateLabels[server.status] ?? server.status}</Badge>
+                      <Badge variant="secondary">{stateLabels[server.status] ?? server.status}</Badge>
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <Separator />
@@ -338,7 +365,7 @@ export default function App() {
                   </Card>
                 )
               })}
-              {!loading && servers.length === 0 && <Alert><ServerIcon className="size-4" /><AlertTitle>暂无服务器</AlertTitle><AlertDescription>Scheduler 尚未向数据库发布服务器状态。</AlertDescription></Alert>}
+              {!loading && servers.length === 0 && <Alert><ServerIcon className="size-4" /><AlertTitle>暂无服务器</AlertTitle><AlertDescription>Scheduler 尚未发布运行中的服务器。</AlertDescription></Alert>}
             </div>
           </TabsContent>
 
@@ -346,17 +373,17 @@ export default function App() {
             <Card className="overflow-hidden">
               <CardHeader><CardTitle>在线玩家</CardTitle><CardDescription>当前玩家及其所在服务器，共 {players.length} 人</CardDescription></CardHeader>
               <CardContent className="px-0">
-                <Table>
-                  <TableHeader><TableRow><TableHead>玩家</TableHead><TableHead>所在服务器</TableHead><TableHead className="hidden md:table-cell">进入时间</TableHead><TableHead className="hidden lg:table-cell">UUID</TableHead></TableRow></TableHeader>
+                {players.length > 0 ? <Table className="table-fixed">
+                  <TableHeader><TableRow><TableHead>玩家</TableHead><TableHead>所在服务器</TableHead><TableHead className="hidden w-24 md:table-cell">进入时间</TableHead><TableHead className="hidden w-[38%] md:table-cell">UUID</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {players.map((player) => <TableRow key={player.uuid}>
-                      <TableCell><div className="flex items-center gap-3"><Avatar><AvatarFallback>{initials(player.username)}</AvatarFallback></Avatar><span className="font-medium">{player.username}</span></div></TableCell>
-                      <TableCell><Badge variant="outline"><MapPin className="size-3" />{player.server_name ?? player.server_id}</Badge></TableCell>
+                      <TableCell><div className="flex min-w-0 items-center gap-3"><Avatar><AvatarFallback>{initials(player.username)}</AvatarFallback></Avatar><div className="min-w-0"><p className="truncate font-medium">{player.username}</p><p className="max-w-44 truncate font-mono text-[11px] text-muted-foreground md:hidden">{player.uuid}</p></div></div></TableCell>
+                      <TableCell><Badge variant="outline" className="max-w-44"><MapPin className="size-3" /><span className="truncate">{player.server_name ?? player.server_id}</span></Badge></TableCell>
                       <TableCell className="hidden text-muted-foreground md:table-cell">{relativeTime(player.connected_at)}</TableCell>
-                      <TableCell className="hidden font-mono text-xs text-muted-foreground lg:table-cell">{player.uuid}</TableCell>
+                      <TableCell className="hidden truncate font-mono text-xs text-muted-foreground md:table-cell">{player.uuid}</TableCell>
                     </TableRow>)}
                   </TableBody>
-                </Table>
+                </Table> : <div className="px-6 py-8 text-center text-sm text-muted-foreground">当前没有在线玩家</div>}
               </CardContent>
             </Card>
           </TabsContent>
@@ -365,14 +392,11 @@ export default function App() {
             <div className="space-y-5">
               <Card className="gap-4 py-5">
                 <CardHeader className="gap-3">
-                  <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
-                    <div><CardTitle>Bingo 排行榜</CardTitle><CardDescription className="mt-1.5">选择玩法，同时查看本月最佳与历史最佳。完成时间越短，排名越高。</CardDescription></div>
-                    <Badge variant="outline"><Medal className="size-3" />每榜 TOP 10</Badge>
-                  </div>
+                  <CardTitle>Bingo 排行榜</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <Tabs value={selectedMetric} onValueChange={setSelectedMetric}>
-                    <TabsList className="h-auto max-w-full flex-wrap justify-start">
+                    <TabsList className="grid h-auto w-full grid-cols-2 sm:flex sm:w-fit sm:max-w-full sm:flex-wrap sm:justify-start">
                       {(catalog.length > 0 ? catalog : Object.keys(bingoMetricLabels).map((metric) => ({ metric } as LeaderboardCatalogEntry))).map((item) => (
                         <TabsTrigger key={item.metric} value={item.metric}>{item.display_name ?? bingoMetricLabels[item.metric] ?? item.metric}</TabsTrigger>
                       ))}
@@ -381,46 +405,42 @@ export default function App() {
                 </CardContent>
               </Card>
 
-              <div className="grid gap-5 2xl:grid-cols-2">
-                <Card className="overflow-hidden">
+              <div className="grid items-stretch gap-5 lg:grid-cols-2">
+                <Card className="h-full overflow-hidden">
                   <CardHeader className="flex-row items-center justify-between gap-3">
                     <div><CardTitle className="flex items-center gap-2"><CalendarDays className="size-4 text-primary" />本月榜</CardTitle><CardDescription className="mt-1.5">{currentMonth} · {bingoMetricLabels[selectedMetric] ?? selectedMetric}</CardDescription></div>
-                    <Badge variant="secondary">MONTH</Badge>
                   </CardHeader>
                   <CardContent className="px-0">
-                    <Table>
-                      <TableHeader><TableRow><TableHead className="w-16">排名</TableHead><TableHead>玩家 ID</TableHead><TableHead>UUID</TableHead><TableHead className="text-right">完成时间</TableHead></TableRow></TableHeader>
+                    {monthlyLeaderboard.length > 0 ? <Table className="table-fixed">
+                      <TableHeader><TableRow><TableHead className="w-16">排名</TableHead><TableHead>玩家 ID</TableHead><TableHead className="hidden w-[42%] md:table-cell">UUID</TableHead><TableHead className="w-28 text-right">完成时间</TableHead></TableRow></TableHeader>
                       <TableBody>
                         {monthlyLeaderboard.map((entry) => <TableRow key={`month-${entry.metric}-${entry.player_uuid}`}>
                           <TableCell><Badge variant={entry.rank <= 3 ? "default" : "secondary"}>#{entry.rank}</Badge></TableCell>
-                          <TableCell><div className="flex items-center gap-3"><Avatar><AvatarFallback>{initials(entry.player_id)}</AvatarFallback></Avatar><div><p className="font-medium">{entry.player_id}</p>{entry.username !== entry.player_id && <p className="text-xs text-muted-foreground">{entry.username}</p>}</div></div></TableCell>
-                          <TableCell className="font-mono text-xs text-muted-foreground">{entry.player_uuid}</TableCell>
+                          <TableCell><div className="flex min-w-0 items-center gap-2"><Avatar className="hidden sm:flex"><AvatarFallback>{initials(entry.player_id)}</AvatarFallback></Avatar><div className="min-w-0"><p className="truncate font-medium">{entry.player_id}</p>{entry.username !== entry.player_id && <p className="truncate text-xs text-muted-foreground">{entry.username}</p>}<p className="truncate font-mono text-[10px] text-muted-foreground md:hidden">{entry.player_uuid}</p></div></div></TableCell>
+                          <TableCell className="hidden truncate font-mono text-xs text-muted-foreground md:table-cell">{entry.player_uuid}</TableCell>
                           <TableCell className="text-right font-mono text-base font-semibold tabular-nums">{formatScore(entry.score, entry.unit)}</TableCell>
                         </TableRow>)}
                       </TableBody>
-                    </Table>
-                    {monthlyLeaderboard.length === 0 && <div className="px-6 py-10 text-center text-sm text-muted-foreground">本月暂无完成记录</div>}
+                    </Table> : <div className="px-6 py-8 text-center text-sm text-muted-foreground">本月暂无完成记录</div>}
                   </CardContent>
                 </Card>
 
-                <Card className="overflow-hidden">
+                <Card className="h-full overflow-hidden">
                   <CardHeader className="flex-row items-center justify-between gap-3">
                     <div><CardTitle className="flex items-center gap-2"><Crown className="size-4 text-primary" />总榜</CardTitle><CardDescription className="mt-1.5">全部历史 · {bingoMetricLabels[selectedMetric] ?? selectedMetric}</CardDescription></div>
-                    <Badge variant="secondary">ALL TIME</Badge>
                   </CardHeader>
                   <CardContent className="px-0">
-                    <Table>
-                      <TableHeader><TableRow><TableHead className="w-16">排名</TableHead><TableHead>玩家 ID</TableHead><TableHead>UUID</TableHead><TableHead className="text-right">完成时间</TableHead></TableRow></TableHeader>
+                    {allTimeLeaderboard.length > 0 ? <Table className="table-fixed">
+                      <TableHeader><TableRow><TableHead className="w-16">排名</TableHead><TableHead>玩家 ID</TableHead><TableHead className="hidden w-[42%] md:table-cell">UUID</TableHead><TableHead className="w-28 text-right">完成时间</TableHead></TableRow></TableHeader>
                       <TableBody>
                         {allTimeLeaderboard.map((entry) => <TableRow key={`all-${entry.metric}-${entry.player_uuid}`}>
                           <TableCell><Badge variant={entry.rank <= 3 ? "default" : "secondary"}>#{entry.rank}</Badge></TableCell>
-                          <TableCell><div className="flex items-center gap-3"><Avatar><AvatarFallback>{initials(entry.player_id)}</AvatarFallback></Avatar><div><p className="font-medium">{entry.player_id}</p>{entry.username !== entry.player_id && <p className="text-xs text-muted-foreground">{entry.username}</p>}</div></div></TableCell>
-                          <TableCell className="font-mono text-xs text-muted-foreground">{entry.player_uuid}</TableCell>
+                          <TableCell><div className="flex min-w-0 items-center gap-2"><Avatar className="hidden sm:flex"><AvatarFallback>{initials(entry.player_id)}</AvatarFallback></Avatar><div className="min-w-0"><p className="truncate font-medium">{entry.player_id}</p>{entry.username !== entry.player_id && <p className="truncate text-xs text-muted-foreground">{entry.username}</p>}<p className="truncate font-mono text-[10px] text-muted-foreground md:hidden">{entry.player_uuid}</p></div></div></TableCell>
+                          <TableCell className="hidden truncate font-mono text-xs text-muted-foreground md:table-cell">{entry.player_uuid}</TableCell>
                           <TableCell className="text-right font-mono text-base font-semibold tabular-nums">{formatScore(entry.score, entry.unit)}</TableCell>
                         </TableRow>)}
                       </TableBody>
-                    </Table>
-                    {allTimeLeaderboard.length === 0 && <div className="px-6 py-10 text-center text-sm text-muted-foreground">暂无历史完成记录</div>}
+                    </Table> : <div className="px-6 py-8 text-center text-sm text-muted-foreground">暂无历史完成记录</div>}
                   </CardContent>
                 </Card>
               </div>

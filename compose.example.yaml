@@ -7,3 +7,4 @@ services:
     environment:
       DATABASE_URL: "postgresql://readonly:change-me@postgres.example.com:5432/minigames?sslmode=require"
       DB_MAX_CONNECTIONS: "10"
+      MC_STATUS_ADDRESS: "frp-hen.com:25568"

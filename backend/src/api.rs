@@ -11,6 +11,7 @@ use sqlx::PgPool;
 use thiserror::Error;
 
 use crate::{
+    minecraft_status::{self, MinecraftStatus},
     models::{HealthResponse, ListResponse, Overview, ServersResponse},
     repository,
 };
@@ -18,18 +19,30 @@ use crate::{
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
+    pub minecraft_status_address: String,
 }
 
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(health))
         .route("/api/overview", get(overview))
+        .route("/api/minecraft-status", get(minecraft_status))
         .route("/api/servers", get(servers))
         .route("/api/players", get(players))
         .route("/api/leaderboards", get(leaderboards))
         .route("/api/leaderboards/catalog", get(leaderboard_catalog))
         .route("/api/{*path}", any(api_not_found))
         .with_state(state)
+}
+
+async fn minecraft_status(State(state): State<AppState>) -> Json<MinecraftStatus> {
+    match minecraft_status::query(&state.minecraft_status_address).await {
+        Ok(status) => Json(status),
+        Err(error) => {
+            tracing::warn!(error_kind = ?error.kind(), "Minecraft 状态探测失败");
+            Json(MinecraftStatus::offline(&state.minecraft_status_address))
+        }
+    }
 }
 
 async fn api_not_found() -> ApiError {
@@ -191,7 +204,10 @@ mod tests {
         let pool = PgPoolOptions::new()
             .connect_lazy("postgres://test:test@127.0.0.1:1/test")
             .expect("测试数据库 URL 应有效");
-        router(AppState { pool })
+        router(AppState {
+            pool,
+            minecraft_status_address: "127.0.0.1:1".into(),
+        })
     }
 
     #[tokio::test]
@@ -220,6 +236,26 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn minecraft_status_returns_offline_without_exposing_connection_error() {
+        let response = test_app()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/minecraft-status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["online"], false);
+        assert!(body.get("error").is_none());
     }
 
     #[test]

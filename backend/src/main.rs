@@ -1,5 +1,6 @@
 mod api;
 mod config;
+mod minecraft_status;
 mod models;
 mod repository;
 
@@ -32,7 +33,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let index = config.frontend_dir.join("index.html");
     let static_files = ServeDir::new(&config.frontend_dir).fallback(ServeFile::new(index));
     let mut app = Router::new()
-        .merge(api::router(api::AppState { pool }))
+        .merge(api::router(api::AppState {
+            pool,
+            minecraft_status_address: config.minecraft_status_address.clone(),
+        }))
         .fallback_service(static_files)
         .layer(TraceLayer::new_for_http());
 

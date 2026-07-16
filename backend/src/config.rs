@@ -9,6 +9,7 @@ pub struct Config {
     pub frontend_dir: PathBuf,
     pub max_connections: u32,
     pub cors_origin: Option<String>,
+    pub minecraft_status_address: String,
 }
 
 impl Config {
@@ -37,6 +38,10 @@ impl Config {
             cors_origin: env::var("CORS_ORIGIN")
                 .ok()
                 .filter(|value| !value.is_empty()),
+            minecraft_status_address: env::var("MC_STATUS_ADDRESS")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "frp-hen.com:25568".into()),
         })
     }
 }

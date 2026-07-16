@@ -25,6 +25,7 @@ COPY --from=frontend-builder /build/frontend/dist ./frontend
 ENV BIND_ADDR=0.0.0.0:8080 \
   FRONTEND_DIR=/app/frontend \
   DB_MAX_CONNECTIONS=10 \
+  MC_STATUS_ADDRESS=frp-hen.com:25568 \
   RUST_LOG=info
 EXPOSE 8080
 USER scheduler-web

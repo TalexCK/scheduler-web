@@ -18,19 +18,36 @@
 }
 
 :root {
-  --background: oklch(0.965 0.008 84);
-  --foreground: oklch(0.2 0.018 70);
-  --card: oklch(0.99 0.004 84);
-  --card-foreground: oklch(0.2 0.018 70);
-  --primary: oklch(0.32 0.055 162);
-  --primary-foreground: oklch(0.98 0.008 84);
-  --secondary: oklch(0.925 0.012 78);
-  --secondary-foreground: oklch(0.28 0.025 70);
-  --muted: oklch(0.935 0.009 82);
-  --muted-foreground: oklch(0.51 0.025 70);
-  --border: oklch(0.875 0.015 78);
-  --ring: oklch(0.47 0.075 162);
+  color-scheme: light;
+  --background: oklch(0.975 0 0);
+  --foreground: oklch(0.16 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.16 0 0);
+  --primary: oklch(0.18 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.92 0 0);
+  --secondary-foreground: oklch(0.23 0 0);
+  --muted: oklch(0.94 0 0);
+  --muted-foreground: oklch(0.47 0 0);
+  --border: oklch(0.85 0 0);
+  --ring: oklch(0.36 0 0);
   --radius: 0.75rem;
+}
+
+:root.dark {
+  color-scheme: dark;
+  --background: oklch(0.12 0 0);
+  --foreground: oklch(0.94 0 0);
+  --card: oklch(0.16 0 0);
+  --card-foreground: oklch(0.94 0 0);
+  --primary: oklch(0.94 0 0);
+  --primary-foreground: oklch(0.13 0 0);
+  --secondary: oklch(0.24 0 0);
+  --secondary-foreground: oklch(0.92 0 0);
+  --muted: oklch(0.2 0 0);
+  --muted-foreground: oklch(0.68 0 0);
+  --border: oklch(0.29 0 0);
+  --ring: oklch(0.68 0 0);
 }
 
 * { border-color: var(--border); }
@@ -38,7 +55,7 @@ body {
   margin: 0;
   min-width: 320px;
   background:
-    radial-gradient(circle at 8% 5%, color-mix(in oklab, var(--primary) 6%, transparent) 0, transparent 30rem),
+    radial-gradient(circle at 8% 5%, color-mix(in oklab, var(--foreground) 4%, transparent) 0, transparent 30rem),
     var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
@@ -46,7 +63,7 @@ body {
 }
 
 .brand-type { font-family: "Iowan Old Style", "Noto Serif SC", serif; }
-.metric-card { gap: 1.25rem; padding-block: 1.25rem; box-shadow: 0 1px 0 rgb(49 43 33 / 4%); }
+.metric-card { gap: 1.25rem; padding-block: 1.25rem; box-shadow: 0 1px 0 rgb(0 0 0 / 4%); }
 .metric-card [data-slot="card-header"] { padding-inline: 1.25rem; }
 .metric-card [data-slot="card-content"] { padding-inline: 1.25rem; }
 .metric-value { font-size: 2rem; letter-spacing: -0.04em; }
@@ -54,7 +71,7 @@ body {
 .accent-card { background: var(--primary); color: var(--primary-foreground); border-color: transparent; }
 .accent-card [data-slot="card-description"], .accent-card .metric-value span { color: color-mix(in oklab, var(--primary-foreground) 70%, transparent); }
 .server-card { padding-block: 1.5rem; transition: transform 180ms ease, box-shadow 180ms ease; }
-.server-card:hover { transform: translateY(-2px); box-shadow: 0 14px 35px rgb(49 43 33 / 7%); }
+.server-card:hover { transform: translateY(-2px); box-shadow: 0 14px 35px rgb(0 0 0 / 9%); }
 .status-dot { width: .42rem; height: .42rem; border-radius: 999px; background: currentColor; box-shadow: 0 0 0 3px color-mix(in oklab, currentColor 14%, transparent); }
 
 @media (prefers-reduced-motion: no-preference) {

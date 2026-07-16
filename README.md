@@ -30,6 +30,8 @@ Web 单独创建仅具四张 `scheduler_*` 表 `SELECT` 权限的 PostgreSQL 角
 - `DB_MAX_CONNECTIONS`：连接池上限，默认 `10`。
 - `FRONTEND_DIR`：静态资源目录，容器内默认 `/app/frontend`。
 - `CORS_ORIGIN`：可选。仅在前后端跨域部署时设置允许的单一来源。
+- `MC_STATUS_ADDRESS`：Minecraft Server List Ping 目标，默认
+  `frp-hen.com:25568`。连接、读取和写入均受 3 秒整体超时约束。
 - `RUST_LOG`：日志过滤器，默认 `info`。
 
 ## 只读 API
@@ -38,6 +40,10 @@ Web 单独创建仅具四张 `scheduler_*` 表 `SELECT` 权限的 PostgreSQL 角
 - `GET /api/overview`：一次返回定义、实例和玩家快照。
 - `GET /api/servers`：服务器定义与实例。
 - `GET /api/players`：在线玩家与所在服务器。
+- `GET /api/minecraft-status`：通过 Minecraft Server List Ping 返回整体网络
+  状态，包括 `online`、`host`、`port`、`latency_ms`、`online_players`、
+  `max_players`、`version`、纯文本 `motd` 和 `checked_at`。探测失败仍返回
+  `200` 和 `online=false`，不会向浏览器泄露内部错误。
 - `GET /api/leaderboards/catalog`：返回可展示的游戏、指标、周期、周期键、
   排序方向和单位。
 - `GET /api/leaderboards?game=bingo&metric=<模式>&period=month&period_key=YYYY-MM&limit=10`：
